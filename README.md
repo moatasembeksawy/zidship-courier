@@ -252,7 +252,7 @@ All couriers map to these 9 unified statuses:
 
 ---
 
-## 🔧 Add a New Courier (3 Steps)
+## Add a New Courier (3 Steps)
 
 ### Step 1: Create Courier Class
 
