@@ -133,7 +133,7 @@ if (Cache::get('aramex:failures') >= 5) {
 ```
 Request 1-4: Fail → Count failures
 Request 5: Fail → Block all requests for 60s
-After 60s: Try again, reset if success
+After 60s: Try again, reset if success 2 times
 ```
 
 **Why?**
