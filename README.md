@@ -1,61 +1,338 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# ZidShip Courier Integration Framework
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+A Laravel framework for integrating multiple courier services (Aramex, SMSA, DHL, etc.) through one unified API.
 
-## About Laravel
+### ✨ Core Features
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+*   **Unified API**: Create, track, and cancel shipments with any courier using the same API calls.
+*   **Add New Couriers Easily**: A simple pattern lets you add new couriers without changing existing code.
+*   **Asynchronous Support**: Option to queue shipment creation for a faster user experience.
+*   **Built-in Resilience**: Automatic retries and a circuit breaker for handling API failures.
+*   **Real-time Events**: React to shipment status changes in your application.
+*    **Cache results** for better performance
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+---
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## 🏗️ Architecture & Design Patterns
 
-## Learning Laravel
+The framework is built on a clean, maintainable architecture designed for extensibility.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+*   **Goal**: To allow new couriers to be added without modifying existing code.
+*   **Core Idea**: The system is built arousnd a central `CourierInterface`, which defines a contract for what a courier must be able to do (create waybill, track, etc.).
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
 
-## Laravel Sponsors
+1.  **Strategy Pattern**: This is the key to the whole system. Each courier (Aramex, SMSA, etc.) is a separate "strategy" class that implements the `CourierInterface`. Your application code doesn't care which courier it's using; it just calls the methods on the interface from the abstract class `AbstractCourier` that implement this interface, And if Support Cancellation implement `SupportsCancellation` Interface .
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+2.  **Factory Pattern**: A `CourierFactory` class is responsible for creating the correct courier "strategy" object based on a code (e.g., `'aramex'`). This decouples your business logic from the specific courier classes.
 
-### Premium Partners
+3.  **Adapter Pattern**: Each courier class also acts as an "adapter." It translates the framework's standard request format into the specific format required by the courier's external API.
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+This combination of patterns makes the system extremely flexible and easy to maintain.
 
-## Contributing
+---
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+## 🎯 Key Design Decisions
+- **DTOs**: Type safety prevents bugs
+- **PostgreSQL**: JSONB for flexible courier, data Better full-text search
+- **Redis**: Fast caching (Tracking data , Labels , Circuit breaker)
+- **Queue**: Handle high volume
+- **Circuit breaker**: Protect from failing APIs
+- **Tests**: Confidence when changing code
 
-## Code of Conduct
+---
+### HTTP Retry Logic
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+**The Problem:** APIs fail sometimes (network issues, rate limits, server errors).
 
-## Security Vulnerabilities
+**My Solution:**
+```php
+class HttpClient {
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+    public function __construct(
+        private int $maxRetries = 3,
+        private int $retryDelay = 1000, // in milliseconds
+        private int $timeout = 30 // in seconds
+    ) {}
+    
+   Http::withHeaders($headers)
+                ->timeout($this->timeout)
+                ->retry($this->maxRetries, $this->retryDelay, null, false) 
+                ->{$method}($url, $payload);
+}
+```
 
-## License
+---
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+### Circuit Breaker
+
+**The Problem:** If Aramex API is down, every request waits 7 seconds before failing.
+
+**My Solution:**
+```php
+// After 5 failures, stop trying for 60 seconds
+if (Cache::get('aramex:failures') >= 5) {
+    throw new Exception('Aramex is down');
+}
+```
+
+**How it works:**
+```
+Request 1-4: Fail → Count failures
+Request 5: Fail → Block all requests for 60s
+After 60s: Try again, reset if success
+```
+
+**Why?**
+- ✅ Fast failures (no waiting)
+- ✅ Protects our system
+- ✅ Gives failed API time to recover
+---
+### Events: `ShipmentStatusChanged`
+
+**The Problem:** When status changes, we need to:
+- Send email to customer
+- Send SMS
+- Log it
+- Update analytics
+- Call merchant webhook
+
+
+```php
+event(new ShipmentStatusChanged($shipment, $oldStatus, $newStatus));
+```
+**Listeners:**
+```php
+class NotifyCustomerOfStatusChange {
+    public function handle(ShipmentStatusChanged $event) {
+        Log::info(...);
+        Mail::send(...);
+    }
+}
+```
+
+**Auto-fire with Observer:**
+```php
+class ShipmentObserver {
+    public function updated(Shipment $shipment) {
+        event(new ShipmentStatusChanged(...));
+    }
+}
+```
+
+---
+
+### **Async Mode for Shipments**
+
+**Sync mode:**
+```php
+$shipment = $service->createShipment(..., async: false);
+// Wait 2-5 seconds for courier API → Return shipment
+```
+
+**Async mode: using laravel queue**
+```php
+$id = $service->createShipment(..., async: true);
+// Return immediately → Process in background
+CreateWaybillJob::dispatch($shipment->id, $request);
+```
+
+**Decision:** Support both. Small shops need immediate response, large shops need throughput.
+
+---
+
+## 🎭 Status Mapping
+
+All couriers map to these 9 unified statuses:
+
+| Unified Status | Meaning |
+|----------------|---------|
+| `pending` | Created, waiting for pickup |
+| `picked_up` | Courier picked up package |
+| `in_transit` | On the way to destination |
+| `out_for_delivery` | Delivery agent has it |
+| `delivered` | Successfully delivered ✅ |
+| `delivery_failed` | Failed delivery attempt |
+| `cancelled` | Shipment cancelled |
+| `returned` | Returned to sender |
+| `exception` | Problem occurred |
+
+**Example:** Aramex returns "SH003", we map it to `in_transit`
+
+---
+
+## 🔧 Add a New Courier (3 Steps)
+
+### Step 1: Create Courier Class
+
+```php
+// app/Services/Couriers/DhlCourier.php
+
+class DhlCourier extends AbstractCourier implements SupportsCancellation 
+{
+    public function getCode(): string { return 'dhl'; }
+    public function getName(): string { return 'DHL'; }
+    
+    public function createWaybill($request) {
+        // Call DHL API
+        $response = $this->httpClient->post('https://dhl.com/api/shipments', ...);
+        return new CreateWaybillResponse(...);
+    }
+    
+    public function mapStatus(string $courierStatus): ShipmentStatus {
+        return match($courierStatus) {
+            'AD' => ShipmentStatus::IN_TRANSIT,
+            'OK' => ShipmentStatus::DELIVERED,
+            default => ShipmentStatus::EXCEPTION,
+        };
+    }
+    
+    // Implement other methods...
+}
+```
+
+### Step 2: Register in Factory
+
+```php
+// app/Services/CourierFactory.php
+
+$this->couriers['dhl'] = function() {
+    return new DhlCourier($this->httpClient, config('couriers.dhl'));
+};
+```
+
+### Step 3: Add Configuration
+
+```php
+// config/couriers.php
+
+'dhl' => [
+    'base_url' => env('DHL_API_URL'),
+    'api_key' => env('DHL_API_KEY'),
+    'rate_limit' => ['requests' => 100, 'per_minutes' => 1],
+],
+```
+
+**Done!** Your new courier works with all existing endpoints.
+
+---
+
+## 📦 Installation
+
+```bash
+# Clone and install
+git clone <repo>
+composer install
+
+# Setup environment
+cp .env.example .env
+nano .env  # Add courier API keys
+
+# Run migrations
+php artisan migrate
+
+# Start queue worker
+php artisan queue:work
+
+# Start server
+php artisan serve
+# Testing Unit And Feature
+php artisan test
+```
+
+---
+
+# Configure `.env`:
+    Update your database, Redis, and courier credentials.
+    ```env
+    DB_CONNECTION=pgsql
+    DB_HOST=127.0.0.1
+    DB_PORT=5432
+    DB_DATABASE=zidship
+    DB_USERNAME=user
+    DB_PASSWORD=password
+
+    REDIS_HOST=127.0.0.1
+    REDIS_PORT=6379
+
+    QUEUE_CONNECTION=redis
+
+    # Example for Aramex Courier
+    ARAMEX_ENABLED=true
+    ARAMEX_API_URL=https://ws.sbx.aramex.net/ShippingAPI.V2
+    ARAMEX_USERNAME=your_aramex_username
+    ARAMEX_PASSWORD=your_aramex_password
+    ARAMEX_ACCOUNT_NUMBER=your_account_number
+    ARAMEX_ACCOUNT_PIN=your_account_pin
+    ARAMEX_ACCOUNT_ENTITY=your_account_entity # e.g., RUH
+    ARAMEX_ACCOUNT_COUNTRY_CODE=SA
+    ```
+---
+
+## 🔌 API Documentation & Examples
+
+### Endpoints Overview
+
+| Method   | Endpoint                               | Description                               |
+| :------- | :------------------------------------- | :---------------------------------------- |
+| `POST`   | `/api/v1/shipments`                    | Create a new shipment                     |
+| `GET`    | `/api/v1/shipments/{id}`               | Get shipment details                      |
+| `GET`    | `/api/v1/shipments/{id}/track`         | Get current tracking information          |
+| `GET`    | `/api/v1/shipments/{id}/label`         | Get waybill label                         |
+| `DELETE` | `/api/v1/shipments/{id}`               | Cancel a shipment                         |
+| `POST`   | `/api/v1/webhooks/{courier}`           | Endpoint for courier webhook notifications |
+
+---
+
+### Create Shipment
+**Synchronous** : "async": false
+**Asynchronous** : "async": true
+
+**Request:** `POST /api/v1/shipments`
+
+```bash
+curl -X POST 'http://localhost:8000/api/v1/shipments' \
+-H 'Content-Type: application/json' \
+-H 'Accept: application/json' \
+-d '{
+    "async": true, 
+    "courier_code": "aramex",
+    "reference": "ORD-ZID-12345",
+    "shipper": {
+        "name": "ZidShip Warehouse",
+        "phone": "+966500000001",
+        "address_line_1": "123 Main Street",
+        "city": "Riyadh",
+        "state": "Riyadh",
+        "postal_code": "11564",
+        "country_code": "SA"
+    },
+    "receiver": {
+        "name": "Customer Name",
+        "phone": "+966500000002",
+        "address_line_1": "456 Customer Ave",
+        "city": "Jeddah",
+        "state": "Makkah",
+        "postal_code": "21589",
+        "country_code": "SA"
+    },
+    "package": {
+        "weight": 1.5,
+        "length": 20,
+        "width": 15,
+        "height": 10
+    }
+}'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid-here",
+    "waybill_number": "aramex123456789",
+    "status": "created"
+  }
+}
+```

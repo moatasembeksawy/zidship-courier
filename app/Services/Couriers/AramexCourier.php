@@ -309,35 +309,39 @@ class AramexCourier extends AbstractCourier implements SupportsCancellation
     {
         return match (strtoupper(trim($courierStatus))) {
             // Initial statuses
-            'SH001' => ShipmentStatus::PENDING,
+            'SH001', 'CREATED', 'SHIPMENT_CREATED' => ShipmentStatus::PENDING,
 
             // Pickup statuses
-            'SH011' => ShipmentStatus::PICKED_UP,
+            'SH002', 'COLLECTED', 'PICKED_UP', 'SHIPMENT_PICKED_UP' => ShipmentStatus::PICKED_UP,
 
             // In transit statuses
-            'SH013' => ShipmentStatus::IN_TRANSIT,
+            'SH003', 'RECEIVED_AT_ORIGIN', 'AT_ORIGIN_HUB' => ShipmentStatus::IN_TRANSIT,
+            'SH004', 'SHIPPED', 'IN_TRANSIT', 'ON_THE_WAY' => ShipmentStatus::IN_TRANSIT,
+            'SH005', 'ARRIVED_AT_DESTINATION', 'AT_DESTINATION_HUB' => ShipmentStatus::IN_TRANSIT,
+            'SH006', 'RECEIVED_AT_DESTINATION' => ShipmentStatus::IN_TRANSIT,
 
             // Out for delivery
-            'SH003' => ShipmentStatus::OUT_FOR_DELIVERY,
+            'SH007', 'OUT_FOR_DELIVERY', 'WITH_DELIVERY_COURIER' => ShipmentStatus::OUT_FOR_DELIVERY,
 
             // Delivered
-            'SH005' => ShipmentStatus::DELIVERED,
+            'SH008', 'DELIVERED', 'SHIPMENT_DELIVERED' => ShipmentStatus::DELIVERED,
 
             // Failed delivery
-            'SH009' => ShipmentStatus::DELIVERY_FAILED,
-            'SH010' => ShipmentStatus::DELIVERY_FAILED,
-            'SH375' => ShipmentStatus::DELIVERY_FAILED,
+            'SH009', 'NOT_DELIVERED', 'DELIVERY_FAILED' => ShipmentStatus::DELIVERY_FAILED,
+            'SH010', 'CUSTOMER_NOT_AVAILABLE' => ShipmentStatus::DELIVERY_FAILED,
+            'SH011', 'WRONG_ADDRESS' => ShipmentStatus::DELIVERY_FAILED,
 
             // Exceptions
-            'SH012' => ShipmentStatus::EXCEPTION,
-            'SH013' => ShipmentStatus::EXCEPTION,
-            'SH014' => ShipmentStatus::EXCEPTION,
+            'SH012', 'ON_HOLD', 'HELD' => ShipmentStatus::EXCEPTION,
+            'SH013', 'CUSTOMS_CLEARANCE' => ShipmentStatus::EXCEPTION,
+            'SH014', 'EXCEPTION', 'PROBLEM_OCCURRED' => ShipmentStatus::EXCEPTION,
 
             // Returns
-            'SH009' => ShipmentStatus::RETURNED,
+            'SH015', 'RETURN_TO_SHIPPER', 'RETURNING' => ShipmentStatus::RETURNED,
+            'SH016', 'RETURNED', 'RETURNED_TO_SHIPPER' => ShipmentStatus::RETURNED,
 
             // Cancelled
-            'SH008' => ShipmentStatus::CANCELLED,
+            'SH017', 'CANCELLED', 'SHIPMENT_CANCELLED' => ShipmentStatus::CANCELLED,
 
             default => ShipmentStatus::EXCEPTION,
         };
