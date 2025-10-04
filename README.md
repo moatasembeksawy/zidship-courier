@@ -123,9 +123,47 @@ class HttpClient {
 
 **My Solution:**
 ```php
-// After 5 failures, stop trying for 60 seconds
-if (Cache::get('aramex:failures') >= 5) {
-    throw new Exception('Aramex is down');
+class AbstractCourier {
+    
+    protected function makeApiCall(callable $callback)
+    {
+        if (!$this->isAvailable()) {
+            throw new \App\Exceptions\CourierApiException("Courier service for {$this->getName()} is currently unavailable.", 503);
+        }
+
+        try {
+            $result = $callback();
+            $this->recordSuccess();
+            return $result;
+        } catch (\Exception $e) {
+            $this->recordFailure();
+            throw $e; // Re-throw the original exception
+        }
+    }
+
+    public function isAvailable(): bool
+    {
+        $state = Cache::get($this->circuitBreakerKey, [
+            'status' => 'closed',
+            'failures' => 0,
+            'successes' => 0,
+            'opened_at' => null
+        ]);
+
+        if ($state['status'] === 'open') {
+            // If timeout has passed, move to half-open
+            if (now()->timestamp > $state['opened_at'] + $this->timeoutSeconds) {
+                $state['status'] = 'half_open';
+                $state['successes'] = 0;
+                Cache::put($this->circuitBreakerKey, $state, $this->timeoutSeconds * 2);
+                return true; // Allow one test request
+            }
+            return false; // Circuit is open
+        }
+
+        return true; // Circuit is closed or half-open
+    }
+
 }
 ```
 
@@ -133,7 +171,7 @@ if (Cache::get('aramex:failures') >= 5) {
 ```
 Request 1-4: Fail → Count failures
 Request 5: Fail → Block all requests for 60s
-After 60s: Try again, reset if success 2 times
+After 60s: Try again, reset if success
 ```
 
 **Why?**
@@ -227,9 +265,11 @@ class DhlCourier extends AbstractCourier implements SupportsCancellation
     public function getName(): string { return 'DHL'; }
     
     public function createWaybill($request) {
-        // Call DHL API
-        $response = $this->httpClient->post('https://dhl.com/api/shipments', ...);
-        return new CreateWaybillResponse(...);
+        return $this->makeApiCall(function () use ($request) {
+            // Call DHL API
+            $response = $this->httpClient->post('https://dhl.com/api/shipments', ...);
+            return new CreateWaybillResponse(...);
+        });
     }
     
     public function mapStatus(string $courierStatus): ShipmentStatus {
