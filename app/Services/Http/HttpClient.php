@@ -7,10 +7,6 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use App\Exceptions\CourierApiException;
 
-/**
- * A wrapper around Laravel's HTTP client to provide unified retry logic,
- * error handling, and logging for all courier API communications.
- */
 class HttpClient
 {
     public function __construct(
@@ -19,88 +15,84 @@ class HttpClient
         private int $timeout = 30 // in seconds
     ) {}
 
-    /**
-     * Make a POST request with retry logic.
-     *
-     * @throws CourierApiException
-     */
     public function post(string $url, array $data, array $headers = []): array
     {
         return $this->send('post', $url, $data, $headers);
     }
 
-    /**
-     * Make a GET request with retry logic.
-     *
-     * @throws CourierApiException
-     */
     public function get(string $url, array $query = [], array $headers = []): array
     {
         return $this->send('get', $url, $query, $headers);
     }
 
-    /**
-     * Make a DELETE request with retry logic.
-     *
-     * @throws CourierApiException
-     */
     public function delete(string $url, array $data = [], array $headers = []): array
     {
         return $this->send('delete', $url, $data, $headers);
     }
 
-    /**
-     * Core method to send HTTP requests with robust error handling and retries.
-     */
     private function send(string $method, string $url, array $payload, array $headers): array
     {
-        try {
-            $response = Http::withHeaders($headers)
-                ->timeout($this->timeout)
-                ->retry($this->maxRetries, $this->retryDelay, null, false)
-                ->{$method}($url, $payload);
+        $attempt = 0;
+        $lastException = null;
 
-            if ($response->failed()) {
+        while ($attempt < $this->maxRetries) {
+            $attempt++;
+
+            try {
+                $response = Http::withHeaders($headers)
+                    ->timeout($this->timeout)
+                    ->{$method}($url, $payload);
+
+                if ($response->successful()) {
+                    return $response->json() ?? [];
+                }
+
+                if ($response->clientError()) { // 4xx errors - fail immediately
+                    $this->logError($response, $url);
+                    throw new CourierApiException("Courier API client error: " . $response->reason(), $response->status());
+                }
+
+                // Any other failure (5xx, etc.) is considered retryable
+                $lastException = new CourierApiException("Courier API server error: " . $response->reason(), $response->status());
                 $this->logError($response, $url);
-                throw new CourierApiException(
-                    "Courier API error: " . $response->reason(),
-                    $response->status()
-                );
+            } catch (\Illuminate\Http\Client\ConnectionException | \Illuminate\Http\Client\RequestException $e) {
+                // This single block now handles both connection and request exceptions (like timeouts)
+                $lastException = $e;
+                Log::warning("Courier API connection/request error", [
+                    'url' => $url,
+                    'attempt' => $attempt,
+                    'error' => $e->getMessage(),
+                ]);
             }
 
-            Log::info("Courier API request successful", [
-                'method' => strtoupper($method),
-                'url' => $url,
-                'status' => $response->status(),
-            ]);
-
-            return $response->json() ?? [];
-        } catch (\Exception $e) {
-            if ($e instanceof CourierApiException) {
-                throw $e;
+            // If we are here, an error occurred. Sleep if it's not the last attempt.
+            if ($attempt < $this->maxRetries) {
+                $delay = $this->calculateBackoff($attempt);
+                usleep($delay * 1000); // usleep takes microseconds
             }
-
-            Log::error('Courier API request failed', [
-                'url' => $url,
-                'exception' => get_class($e),
-                'message' => $e->getMessage(),
-            ]);
-
-            throw new CourierApiException(
-                "Courier API connection error: " . $e->getMessage(),
-                503, // Service Unavailable
-                $e
-            );
         }
+
+        // If the loop finishes, all retries have failed.
+        throw new CourierApiException(
+            "Courier API request failed after {$this->maxRetries} attempts: " . $lastException->getMessage(),
+            $lastException->getCode() ?: 503,
+            $lastException
+        );
     }
+
+    private function calculateBackoff(int $attempt): int
+    {
+        return $this->retryDelay * pow(2, $attempt - 1);
+    }
+
+
 
     private function logError(Response $response, string $url): void
     {
-        Log::error('Courier API request returned an error', [
+        Log::error('Courier API error response', [
             'url' => $url,
             'status' => $response->status(),
-            'reason' => $response->reason(),
-            'response_body' => $response->body(),
+            'body' => $response->body(),
         ]);
     }
 }

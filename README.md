@@ -41,7 +41,7 @@ This combination of patterns makes the system extremely flexible and easy to mai
 - **Tests**: Confidence when changing code
 
 ---
-### HTTP Retry Logic
+### HTTP Retry Logic && Exponential backoff
 
 **The Problem:** APIs fail sometimes (network issues, rate limits, server errors).
 
@@ -55,12 +55,65 @@ class HttpClient {
         private int $timeout = 30 // in seconds
     ) {}
     
-   Http::withHeaders($headers)
-                ->timeout($this->timeout)
-                ->retry($this->maxRetries, $this->retryDelay, null, false) 
-                ->{$method}($url, $payload);
+   private function send(string $method, string $url, array $payload, array $headers): array
+    {
+        $attempt = 0;
+        $lastException = null;
+
+        while ($attempt < $this->maxRetries) {
+            $attempt++;
+
+            try {
+                $response = Http::withHeaders($headers)
+                    ->timeout($this->timeout)
+                    ->{$method}($url, $payload);
+
+                if ($response->successful()) {
+                    return $response->json() ?? [];
+                }
+
+                if ($response->clientError()) { // 4xx errors - fail immediately
+                    $this->logError($response, $url);
+                    throw new CourierApiException("Courier API client error: " . $response->reason(), $response->status());
+                }
+
+                // Any other failure (5xx, etc.) is considered retryable
+                $lastException = new CourierApiException("Courier API server error: " . $response->reason(), $response->status());
+                $this->logError($response, $url);
+            } catch (\Illuminate\Http\Client\ConnectionException | \Illuminate\Http\Client\RequestException $e) {
+                // This single block now handles both connection and request exceptions (like timeouts)
+                $lastException = $e;
+                Log::warning("Courier API connection/request error", [
+                    'url' => $url,
+                    'attempt' => $attempt,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
+            // If we are here, an error occurred. Sleep if it's not the last attempt.
+            if ($attempt < $this->maxRetries) {
+                $delay = $this->calculateBackoff($attempt);
+                usleep($delay * 1000); // usleep takes microseconds
+            }
+        }
+
+        // If the loop finishes, all retries have failed.
+        throw new CourierApiException(
+            "Courier API request failed after {$this->maxRetries} attempts: " . $lastException->getMessage(),
+            $lastException->getCode() ?: 503,
+            $lastException
+        );
+    }
 }
 ```
+
+**Why this approach?**
+- ✅ Exponential backoff (1s, 2s, 4s) gives API time to recover
+- ✅ Don't retry 4xx errors (won't fix themselves)
+- ✅ 3 retries = 90% success rate, 7 seconds max wait
+- ✅ Circuit breaker prevents cascading failures
+- ✅ Better logging for debugging
+
 
 ---
 

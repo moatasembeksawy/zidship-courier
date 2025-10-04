@@ -57,7 +57,7 @@ class AramexCourier extends AbstractCourier implements SupportsCancellation
 
     public function createWaybill(CreateWaybillRequest $request): CreateWaybillResponse
     {
-        try {
+        return $this->makeApiCall(function () use ($request) {
             $payload = $this->buildCreateShipmentPayload($request);
             $response = $this->httpClient->post(
                 $this->getBaseUrl() . '/Shipping/Service_1_0.svc/json/CreateShipments',
@@ -77,8 +77,6 @@ class AramexCourier extends AbstractCourier implements SupportsCancellation
                 throw new CourierApiException('Aramex API returned no shipments in response');
             }
 
-            $this->recordSuccess();
-
             $shipment = $response['Shipments'][0];
 
             // Validate we have required fields
@@ -97,44 +95,34 @@ class AramexCourier extends AbstractCourier implements SupportsCancellation
                     'notifications' => $response['Notifications'] ?? [],
                 ]
             );
-        } catch (CourierApiException $e) {
-            $this->recordFailure();
-            throw $e;
-        } catch (\Exception $e) {
-            $this->recordFailure();
-
-            throw new CourierApiException(
-                "Failed to create Aramex waybill: {$e->getMessage()}",
-                $e->getCode(),
-                $e
-            );
-        }
+        });
     }
 
     public function getWaybillLabel(string $waybillNumber): WaybillLabel
     {
-        try {
+        return $this->makeApiCall(function () use ($waybillNumber) {
             $payload = [
                 'ClientInfo' => $this->getClientInfo(),
                 'ShipmentNumber' => $waybillNumber,
             ];
 
-            $response = Cache::remember("label:Aramex" . $waybillNumber, 300, fn() => $this->httpClient->post(
-                $this->getBaseUrl() . '/Shipping/Service_1_0.svc/json/PrintLabel',
-                $payload,
-                $this->getAuthHeaders()
-            ));
+            $response = Cache::remember("label:Aramex" . $waybillNumber, 300, function () use ($payload) {
+                $resp = $this->httpClient->post(
+                    $this->getBaseUrl() . '/Shipping/Service_1_0.svc/json/PrintLabel',
+                    $payload,
+                    $this->getAuthHeaders()
+                );
 
-            if ($response['HasErrors'] ?? false) {
-                $errors = $response['Notifications'] ?? [];
-                $errorMessage = $this->formatErrors($errors);
-                throw new CourierApiException("Aramex API Error: {$errorMessage}");
-            }
+                if ($resp['HasErrors'] ?? false) {
+                    $errors = $resp['Notifications'] ?? [];
+                    $errorMessage = $this->formatErrors($errors);
+                    throw new CourierApiException("Aramex API Error: {$errorMessage}");
+                }
 
-            $this->recordSuccess();
+                return $resp;
+            });
 
             $labelInfo = $response['ShipmentLabel'] ?? [];
-
 
             if (isset($labelInfo['LabelFileContents'])) {
                 return new WaybillLabel(
@@ -155,20 +143,12 @@ class AramexCourier extends AbstractCourier implements SupportsCancellation
             }
 
             throw new CourierApiException('No label data found in Aramex response');
-        } catch (\Exception $e) {
-            Cache::forget("label:Aramex" . $waybillNumber);
-            $this->recordFailure();
-            throw new CourierApiException(
-                "Failed to retrieve Aramex label: {$e->getMessage()}",
-                $e->getCode(),
-                $e
-            );
-        }
+        });
     }
 
     public function trackShipment(string $waybillNumber): TrackingResponse
     {
-        try {
+        return $this->makeApiCall(function () use ($waybillNumber) {
             $payload = [
                 'ClientInfo' => $this->getClientInfo(),
                 'Transaction' => [
@@ -182,23 +162,21 @@ class AramexCourier extends AbstractCourier implements SupportsCancellation
                 'GetLastTrackingUpdateOnly' => false,
             ];
 
-            // Tracking data (5 min)
-            $response = Cache::remember("track:Aramex" . $waybillNumber, 300, fn() =>
-            $this->httpClient->post(
-                $this->getBaseUrl() . '/Tracking/Service_1_0.svc/json/TrackShipments',
-                $payload,
-                $this->getAuthHeaders()
-            ));
+            $response = Cache::remember("track:Aramex" . $waybillNumber, 300, function () use ($payload) {
+                $resp = $this->httpClient->post(
+                    $this->getBaseUrl() . '/Tracking/Service_1_0.svc/json/TrackShipments',
+                    $payload,
+                    $this->getAuthHeaders()
+                );
 
+                if ($resp['HasErrors'] ?? false) {
+                    $errors = $resp['Notifications'] ?? [];
+                    $errorMessage = $this->formatErrors($errors);
+                    throw new CourierApiException("Aramex API Error: {$errorMessage}");
+                }
 
-
-            if ($response['HasErrors'] ?? false) {
-                $errors = $response['Notifications'] ?? [];
-                $errorMessage = $this->formatErrors($errors);
-                throw new CourierApiException("Aramex API Error: {$errorMessage}");
-            }
-
-            $this->recordSuccess();
+                return $resp;
+            });
 
             $trackingResults = $response['TrackingResults'] ?? [];
 
@@ -228,20 +206,12 @@ class AramexCourier extends AbstractCourier implements SupportsCancellation
                     'total_events' => count($events),
                 ]
             );
-        } catch (\Exception $e) {
-            Cache::forget("track:Aramex" . $waybillNumber);
-            $this->recordFailure();
-            throw new CourierApiException(
-                "Failed to track Aramex shipment: {$e->getMessage()}",
-                $e->getCode(),
-                $e
-            );
-        }
+        });
     }
 
     public function cancelShipment(string $waybillNumber): CancellationResponse
     {
-        try {
+        return $this->makeApiCall(function () use ($waybillNumber) {
             $payload = [
                 'ClientInfo' => $this->getClientInfo(),
                 'Transaction' => [
@@ -262,8 +232,6 @@ class AramexCourier extends AbstractCourier implements SupportsCancellation
             $hasErrors = $response['HasErrors'] ?? false;
             $notifications = $response['Notifications'] ?? [];
 
-            $this->recordSuccess();
-
             if ($hasErrors) {
                 return new CancellationResponse(
                     success: false,
@@ -279,14 +247,7 @@ class AramexCourier extends AbstractCourier implements SupportsCancellation
                 courierReference: $waybillNumber,
                 metadata: ['notifications' => $notifications]
             );
-        } catch (\Exception $e) {
-            $this->recordFailure();
-            throw new CourierApiException(
-                "Failed to cancel Aramex shipment: {$e->getMessage()}",
-                $e->getCode(),
-                $e
-            );
-        }
+        });
     }
 
     public function canBeCancelled(string $waybillNumber): bool
