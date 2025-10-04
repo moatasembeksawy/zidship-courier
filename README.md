@@ -2,7 +2,7 @@
 
 A Laravel framework for integrating multiple courier services (Aramex, SMSA, DHL, etc.) through one unified API.
 
-### ✨ Core Features
+### Core Features
 
 *   **Unified API**: Create, track, and cancel shipments with any courier using the same API calls.
 *   **Add New Couriers Easily**: A simple pattern lets you add new couriers without changing existing code.
@@ -13,7 +13,7 @@ A Laravel framework for integrating multiple courier services (Aramex, SMSA, DHL
 
 ---
 
-## 🏗️ Architecture & Design Patterns
+## Architecture & Design Patterns
 
 The framework is built on a clean, maintainable architecture designed for extensibility.
 
@@ -32,7 +32,7 @@ This combination of patterns makes the system extremely flexible and easy to mai
 
 ---
 
-## 🎯 Key Design Decisions
+## Key Design Decisions
 - **DTOs**: Type safety prevents bugs
 - **PostgreSQL**: JSONB for flexible courier, data Better full-text search
 - **Redis**: Fast caching (Tracking data , Labels , Circuit breaker)
@@ -124,7 +124,7 @@ class HttpClient {
 **My Solution:**
 ```php
 class AbstractCourier {
-    
+
     protected function makeApiCall(callable $callback)
     {
         if (!$this->isAvailable()) {
@@ -232,7 +232,7 @@ CreateWaybillJob::dispatch($shipment->id, $request);
 
 ---
 
-## 🎭 Status Mapping
+## Status Mapping
 
 All couriers map to these 9 unified statuses:
 
@@ -310,7 +310,7 @@ $this->couriers['dhl'] = function() {
 
 ---
 
-## 📦 Installation
+## Installation
 
 ```bash
 # Clone and install
@@ -362,7 +362,7 @@ php artisan test
     ```
 ---
 
-## 🔌 API Documentation & Examples
+## API Documentation & Examples
 
 ### Endpoints Overview
 
