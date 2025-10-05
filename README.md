@@ -30,6 +30,8 @@ The framework is built on a clean, maintainable architecture designed for extens
 
 This combination of patterns makes the system extremely flexible and easy to maintain.
 
+*   **AramexCourier** I have integrated with aramex as an example. 
+
 ---
 
 ## Key Design Decisions
