@@ -421,11 +421,15 @@ curl -X POST 'http://localhost:8000/api/v1/shipments' \
 **Response:**
 ```json
 {
-  "success": true,
-  "data": {
-    "id": "uuid-here",
-    "waybill_number": "aramex123456789",
-    "status": "created"
-  }
+    "success": true,
+    "message": "Request accepted.",
+    "data": {
+        "id": "0199b1d6-0e7f-7180-adb4-5a4b05dc3e81",
+        "status": "pending",
+        "message": "Shipment creation has been queued."
+    },
+    "meta": {
+        "timestamp": "2025-10-05T00:46:59+00:00"
+    }
 }
 ```
